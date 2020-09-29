@@ -15,7 +15,7 @@ requirements = [
     'ase',
     'scipy',
     'plato-draw @ git+https://github.com/glotzerlab/plato@master',
-    'ffmpeg']
+    'ffmpeg-python']
 
 setup_requirements = [ ]
 
