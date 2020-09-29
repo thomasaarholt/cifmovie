@@ -10,14 +10,15 @@ from ase.data.colors import jmol_colors
 
 import plato.draw.matplotlib
 
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation
+
+import ffmpeg
 
 def load(prefix="", directory="", extension='cif'):
     atoms = []
     for f in Path(directory).glob(prefix + "*" + extension):
         atoms.append(read(f))
     return atoms
-
 
 
 def test_load(N=200):
@@ -52,16 +53,35 @@ def test_load(N=200):
     return atom_list
 
 
+def rotation_calc(axes='z', angles=(0,)):
+    '''
+    Multidimensional rotations
+    
+    Either:
+    axes = 'z', angles = (90,)
+    Or:
+    axes = 'z', angles = (0,1,2,3...) of same length as number of frames
+    Or:
+    axes = 'zyx' angles = ([0,1,2, ...], [3,2,1, ...], [0,1,2,...]) # (zangles, yangles, xangles) or any combination
 
-def render(atoms_list, renderer='matplotlib', dpi=72, figsize='auto', pixel_scale=20):
+    See scipy.spatial.transform.Rotation for more info
+    '''
+    return Rotation.from_euler(axes, angles, degrees=True).as_quat()
+
+
+def render(atoms_list, name='img', dpi=72, resolution=(1024, 1024), rotation=[1, 0, 0, 0], background_color='white', format='png'):
+
     renderer = plato.draw.matplotlib
-        
+    
+    rotation = np.array(rotation)
+    if np.ndim(rotation) == 1:
+        rotation = np.stack(len(atoms_list)*(rotation,))
+
     p = Path("cif_images")
     p.mkdir(exist_ok=True)
     
-    scene = renderer.Scene() # just used to get size
-    real_size = scene.size * pixel_scale/dpi
-    figure = plt.figure(figsize=real_size, dpi=dpi)
+    figsize = np.array(resolution) / dpi
+    figure = plt.figure(figsize=figsize, dpi=dpi)
     
     for i, atom in enumerate(atoms_list):
         figure.clf()
@@ -73,12 +93,29 @@ def render(atoms_list, renderer='matplotlib', dpi=72, figsize='auto', pixel_scal
         colors = jmol_colors[numbers]
         colors = np.hstack((colors, np.ones((len(colors), 1)))) # format colors as matplotlib expects
 
-        rotation = R.from_euler('z', (5*math.sin(i/100*(2*np.pi))), degrees=True).as_quat()
         scene = renderer.Scene(
-            zoom=2, 
+            zoom=1, 
             antialiasing=True, 
-            rotation=rotation, # comment this line out to remove rotation
+            rotation=rotation[i],
         )
-        sphere = renderer.Spheres(positions=pos, radii=radii/2, colors=colors, pixel_scale=20,)
+        sphere = renderer.Spheres(positions=pos, radii=radii/2, colors=colors, )#pixel_scale=20,)
         scene.add_primitive(sphere)
-        scene.save('cif_images/vis{:03d}.png'.format(i), figure=figure);
+        
+        if background_color:
+            ax = plt.gca()
+            ax.set_facecolor(background_color)
+
+        scene.save('cif_images/{}_{:03d}.{}'.format(name, i, format), figure=figure);
+
+def movie(path='cif_images', name='img', format='png', duration=3, fps=None):
+    if not fps:
+        nImages = len(list(Path('cif_images').glob('{}*.{}'.format(name, format))))
+        fps = nImages / duration
+
+    ff_input = ffmpeg.input('cif_images/{}_%03d.{}'.format(name, format), framerate=fps)
+    ff_output = ff_input.output('{}.mp4'.format(name), vcodec='copy')
+    ff_output.run(overwrite_output=True)
+
+
+
+    #ffmpeg -framerate 30 -i img_%03d.png -codec copy output.mkv
